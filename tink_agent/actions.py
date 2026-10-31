@@ -34,7 +34,119 @@ _CATALOG_BY_ID = {a["id"]: a for a in ACTION_CATALOG}
 
 def action_label(action_id: str) -> str:
     a = _CATALOG_BY_ID.get(action_id)
-    return a["label"] if a else (action_id or "No action")
+    if a:
+        return a["label"]
+    if action_id.startswith(KEYS_PREFIX):
+        try:
+            return f"Shortcut {format_keys(action_id[len(KEYS_PREFIX):])}"
+        except ValueError:
+            pass
+    return action_id or "No action"
+
+
+# --- custom shortcuts --------------------------------------------------------
+# `keys:<spec>` ids press an arbitrary shortcut. <spec> is one or more chords
+# separated by spaces; each chord is `+`-joined modifiers then one key, e.g.
+#   keys:cmd+shift+k      keys:esc esc      keys:ctrl+a k      keys:cmd+,
+KEYS_PREFIX = "keys:"
+
+# alias -> canonical modifier (also the pynput Key attribute name)
+_MODIFIERS = {
+    "cmd": "cmd", "command": "cmd", "meta": "cmd", "super": "cmd",
+    "ctrl": "ctrl", "control": "ctrl",
+    "alt": "alt", "opt": "alt", "option": "alt",
+    "shift": "shift",
+}
+_MOD_ORDER = ("ctrl", "alt", "shift", "cmd")  # macOS display order ⌃⌥⇧⌘
+_MOD_GLYPH = {"ctrl": "⌃", "alt": "⌥", "shift": "⇧", "cmd": "⌘"}
+
+# alias -> canonical named key (also the pynput Key attribute name)
+_NAMED_KEYS = {
+    "enter": "enter", "return": "enter", "esc": "esc", "escape": "esc",
+    "tab": "tab", "space": "space", "backspace": "backspace",
+    "delete": "delete", "del": "delete", "forwarddelete": "delete",
+    "up": "up", "down": "down", "left": "left", "right": "right",
+    "home": "home", "end": "end", "pageup": "page_up", "pagedown": "page_down",
+    "plus": "+",
+    **{f"f{i}": f"f{i}" for i in range(1, 21)},
+}
+_KEY_GLYPH = {
+    "enter": "⏎", "esc": "⎋", "tab": "⇥", "space": "␣", "backspace": "⌫",
+    "delete": "⌦", "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "home": "↖", "end": "↘", "page_up": "⇞", "page_down": "⇟",
+}
+
+
+def parse_keys(spec: str) -> list[tuple[tuple[str, ...], str]]:
+    """Parse a shortcut spec into [(modifiers, key), ...]. Raises ValueError."""
+    chords = []
+    for chord in spec.split():
+        parts = chord.split("+")
+        if chord.endswith("+"):          # `cmd++` / lone `+` means the plus key
+            parts = [p for p in parts if p] + ["+"]
+        *mods, key = parts
+        canon_mods = []
+        for m in mods:
+            canon = _MODIFIERS.get(m.lower())
+            if canon is None:
+                raise ValueError(f"unknown modifier {m!r} in {chord!r}")
+            if canon not in canon_mods:
+                canon_mods.append(canon)
+        named = _NAMED_KEYS.get(key.lower())
+        if named is not None:
+            key = named
+        elif len(key) == 1:
+            key = key.lower()
+        else:
+            raise ValueError(f"unknown key {key!r} in {chord!r}")
+        chords.append((tuple(m for m in _MOD_ORDER if m in canon_mods), key))
+    if not chords:
+        raise ValueError("empty shortcut")
+    return chords
+
+
+def format_keys(spec: str) -> str:
+    """Human glyph form, e.g. 'cmd+shift+k esc' -> '⇧⌘K ⎋'. Raises ValueError."""
+    out = []
+    for mods, key in parse_keys(spec):
+        glyph = _KEY_GLYPH.get(key) or (key.upper() if len(key) <= 3 else key)
+        out.append("".join(_MOD_GLYPH[m] for m in mods) + glyph)
+    return " ".join(out)
+
+
+# macOS virtual key codes (ANSI layout) -> spec key name, for the shortcut recorder.
+_KEYCODES = {
+    0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x", 8: "c", 9: "v",
+    11: "b", 12: "q", 13: "w", 14: "e", 15: "r", 16: "y", 17: "t", 18: "1",
+    19: "2", 20: "3", 21: "4", 22: "6", 23: "5", 24: "=", 25: "9", 26: "7",
+    27: "-", 28: "8", 29: "0", 30: "]", 31: "o", 32: "u", 33: "[", 34: "i",
+    35: "p", 36: "enter", 37: "l", 38: "j", 39: "'", 40: "k", 41: ";", 42: "\\",
+    43: ",", 44: "/", 45: "n", 46: "m", 47: ".", 48: "tab", 49: "space", 50: "`",
+    51: "backspace", 53: "esc", 76: "enter",
+    122: "f1", 120: "f2", 99: "f3", 118: "f4", 96: "f5", 97: "f6", 98: "f7",
+    100: "f8", 101: "f9", 109: "f10", 103: "f11", 111: "f12", 105: "f13",
+    107: "f14", 113: "f15", 106: "f16", 64: "f17", 79: "f18", 80: "f19", 90: "f20",
+    115: "home", 116: "pageup", 117: "delete", 119: "end", 121: "pagedown",
+    123: "left", 124: "right", 125: "down", 126: "up",
+}
+# NSEventModifierFlag bits
+_FLAG_MODS = ((1 << 18, "ctrl"), (1 << 19, "alt"), (1 << 17, "shift"), (1 << 20, "cmd"))
+
+
+def spec_from_keycode(keycode: int, flags: int) -> str | None:
+    """Recorder: one key-down event -> chord spec ('shift+cmd+k'), or None if the
+    key code isn't one we can replay."""
+    key = _KEYCODES.get(int(keycode))
+    if key is None:
+        return None
+    mods = [name for bit, name in _FLAG_MODS if int(flags) & bit]
+    return "+".join([*mods, key])
+
+
+def normalize_keys(spec: str) -> str:
+    """Canonical spec text, e.g. 'Command+Shift+K' -> 'shift+cmd+k'."""
+    return " ".join("+".join([*mods, "plus" if key == "+" else key])
+                    for mods, key in parse_keys(spec))
 
 
 class ActionRouter:
@@ -123,6 +235,22 @@ class ActionRouter:
         elif action.startswith("type:"):
             self._do_type(action[len("type:"):])
             kb.press(Key.enter); kb.release(Key.enter)
+        elif action.startswith(KEYS_PREFIX):
+            self._do_keys(action[len(KEYS_PREFIX):])
+
+    def _do_keys(self, spec: str) -> None:
+        kb = self.kb
+        Key = kb.Key
+        for mods, key in parse_keys(spec):
+            k = getattr(Key, key) if len(key) > 1 else key
+            held = [getattr(Key, m) for m in mods]
+            for m in held:
+                kb.press(m)
+            try:
+                kb.press(k); kb.release(k)
+            finally:
+                for m in reversed(held):
+                    kb.release(m)
 
     def type_text(self, text: str) -> None:
         if not text:

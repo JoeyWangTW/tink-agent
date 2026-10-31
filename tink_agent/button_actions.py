@@ -11,14 +11,15 @@ from AppKit import (
     NSApplication, NSMakeRect, NSBezierPath, NSGraphicsContext, NSAffineTransform,
     NSMutableParagraphStyle, NSTextTab, NSTextAlignmentLeft,
     NSMutableAttributedString, NSFontAttributeName, NSForegroundColorAttributeName,
-    NSParagraphStyleAttributeName,
+    NSParagraphStyleAttributeName, NSTextField, NSEvent, NSEventMaskKeyDown,
 )
 from Foundation import NSObject
 
 from . import theme
-from .actions import ACTION_CATALOG
+from .actions import ACTION_CATALOG, KEYS_PREFIX, format_keys, normalize_keys, \
+    spec_from_keycode
 
-W, H = 600, 408
+W, H = 600, 458
 M = 18
 DEVICE_W = 286
 
@@ -28,7 +29,14 @@ def slot_number(mode_index: int, slot_index: int) -> int:
     return mode_index * 4 + slot_index + 1
 
 
+# Popup index of the "Custom shortcut…" item (appended after the catalog).
+CUSTOM_INDEX = len(ACTION_CATALOG)
+_HINT = "Press Record, then the shortcut. Type a sequence like: esc esc"
+
+
 def catalog_index_of(action_id: str) -> int:
+    if action_id.startswith(KEYS_PREFIX):
+        return CUSTOM_INDEX
     for i, a in enumerate(ACTION_CATALOG):
         if a["id"] == action_id:
             return i
@@ -193,6 +201,7 @@ class ButtonActionsController(NSObject):
         self.app = app
         self._mode_index = 0
         self._slot_index = 0
+        self._monitor = None
         self._build()
         return self
 
@@ -226,7 +235,7 @@ class ButtonActionsController(NSObject):
         c.addSubview_(self.seg_slot); y += 44
 
         # detail card
-        ch = 150
+        ch = 200
         card = theme.card(rx, y, rw, ch)
         body = card.contentView()
         self.hdr = theme.label("Slot 1", size=17, weight="bold", color=theme.GREEN)
@@ -243,8 +252,28 @@ class ButtonActionsController(NSObject):
         for a in ACTION_CATALOG:
             self.popup.addItemWithTitle_(a["id"])   # unique base title (ids are unique)
             self.popup.lastItem().setAttributedTitle_(_menu_title(a["glyph"], a["label"]))
+        self.popup.addItemWithTitle_("__custom__")
+        self.popup.lastItem().setAttributedTitle_(_menu_title("⌨", "Custom shortcut…"))
         self._wire_popup()
         body.addSubview_(self.popup)
+
+        # custom shortcut: editable spec field + Record button + hint/error line
+        bw = 84
+        self.keys_field = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(14, 130, rw - 28 - bw - 8, 24))
+        self.keys_field.setFont_(theme.font(13, "medium"))
+        self.keys_field.setPlaceholderString_("e.g. cmd+shift+k")
+        kt = theme._Target.alloc().initWithCb_(self._commit_field)
+        self.keys_field.setTarget_(kt)
+        self.keys_field.setAction_("fire:")
+        theme._retain(self.keys_field, kt)
+        body.addSubview_(self.keys_field)
+        self.btn_record = theme.plain_button(
+            "Record", self._toggle_record, rw - 14 - bw, 128, bw, 28)
+        body.addSubview_(self.btn_record)
+        self.keys_hint = theme.label(_HINT, size=11, color=theme.SUBTLE)
+        self.keys_hint.setFrame_(NSMakeRect(14, 162, rw - 28, 30))
+        body.addSubview_(self.keys_hint)
         c.addSubview_(card); y += ch + 10
 
         self.btn_reset = theme.plain_button(
@@ -276,10 +305,86 @@ class ButtonActionsController(NSObject):
         self._update_detail()
 
     @objc.python_method
+    def _slot(self):
+        return slot_number(self._mode_index, self._slot_index)
+
+    @objc.python_method
     def _apply_action_index(self, catalog_index):
-        action_id = ACTION_CATALOG[catalog_index]["id"]
-        self.app.set_slot_action(slot_number(self._mode_index, self._slot_index),
-                                 action_id)
+        self._stop_record()
+        if catalog_index == CUSTOM_INDEX:
+            self._set_custom_visible(True)
+            current = self.app.config.slot_actions.get(self._slot(), "")
+            if not current.startswith(KEYS_PREFIX):
+                self._start_record()  # fresh custom slot: go straight to capture
+            return
+        self.app.set_slot_action(self._slot(), ACTION_CATALOG[catalog_index]["id"])
+        self._set_custom_visible(False)
+
+    # --- custom shortcut ---
+    @objc.python_method
+    def _set_custom_visible(self, on):
+        if not hasattr(self, "keys_field"):  # controller built without its window
+            return
+        for v in (self.keys_field, self.btn_record, self.keys_hint):
+            v.setHidden_(not on)
+
+    @objc.python_method
+    def _set_hint(self, text, error=False):
+        self.keys_hint.setStringValue_(text)
+        self.keys_hint.setTextColor_(theme.ORANGE if error else theme.SUBTLE)
+
+    @objc.python_method
+    def _save_spec(self, spec):
+        """Validate + persist a spec; returns True on success."""
+        try:
+            spec = normalize_keys(spec)
+            shown = format_keys(spec)
+        except ValueError as e:
+            self._set_hint(str(e), error=True)
+            return False
+        self.app.set_slot_action(self._slot(), KEYS_PREFIX + spec)
+        self.keys_field.setStringValue_(spec)
+        self._set_hint(f"Saved: {shown}")
+        return True
+
+    @objc.python_method
+    def _commit_field(self):
+        self._stop_record()
+        self._save_spec(str(self.keys_field.stringValue()))
+
+    @objc.python_method
+    def _toggle_record(self):
+        if self._monitor is None:
+            self._start_record()
+        else:
+            self._stop_record()
+
+    @objc.python_method
+    def _start_record(self):
+        if self._monitor is not None:
+            return
+        theme.set_plain_title(self.btn_record, "Stop")
+        self._set_hint("Recording… press the shortcut now")
+        self.window.makeFirstResponder_(None)  # keep keys out of the text field
+
+        def on_key(event):
+            spec = spec_from_keycode(event.keyCode(), event.modifierFlags())
+            if spec is None:
+                self._set_hint("That key can't be replayed — try another", error=True)
+                return None
+            self._stop_record()
+            self._save_spec(spec)
+            return None  # swallow: don't let the shortcut act on this window
+
+        self._monitor = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+            NSEventMaskKeyDown, on_key)
+
+    @objc.python_method
+    def _stop_record(self):
+        if getattr(self, "_monitor", None) is not None:
+            NSEvent.removeMonitor_(self._monitor)
+            self._monitor = None
+            theme.set_plain_title(self.btn_record, "Record")
 
     @objc.python_method
     def _update_detail(self):
@@ -290,7 +395,12 @@ class ButtonActionsController(NSObject):
             "Bank B · tone pitched +10.5%" if self._mode_index == 1
             else "Bank A · base tone")
         current = self.app.config.slot_actions.get(n, "noop")
+        self._stop_record()
         self.popup.selectItemAtIndex_(catalog_index_of(current))
+        custom = current.startswith(KEYS_PREFIX)
+        self._set_custom_visible(custom)
+        self.keys_field.setStringValue_(current[len(KEYS_PREFIX):] if custom else "")
+        self._set_hint(_HINT)
         self.device.set_selection_(self._mode_index, self._slot_index)
 
     # --- show ---
