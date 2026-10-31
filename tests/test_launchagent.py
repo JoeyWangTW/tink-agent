@@ -51,3 +51,20 @@ def test_install_writes_plist_and_bootstraps(tmp_path):
     assert "bootout" in subcmds
     assert "bootstrap" in subcmds
     assert any(str(plist) in c for c in calls)
+
+
+def test_plist_runs_app_launcher_directly():
+    from tink_agent.launchagent import plist_contents, program_arguments
+    exe = "/Applications/Tink Agent.app/Contents/MacOS/TinkAgent"
+    assert program_arguments(exe) == [exe]
+    xml = plist_contents(exe, "/repo")
+    assert f"<string>{exe}</string>" in xml and "<string>-m</string>" not in xml
+
+
+def test_current_python_prefers_app_launcher(monkeypatch):
+    from tink_agent import launchagent
+    monkeypatch.setenv("TINK_AGENT_APP_EXEC", "/X.app/Contents/MacOS/TinkAgent")
+    assert launchagent.current_python() == "/X.app/Contents/MacOS/TinkAgent"
+    monkeypatch.delenv("TINK_AGENT_APP_EXEC")
+    import sys
+    assert launchagent.current_python() == sys.executable

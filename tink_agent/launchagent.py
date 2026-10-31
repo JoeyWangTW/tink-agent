@@ -17,8 +17,17 @@ PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 LOG_PATH = Path.home() / "Library" / "Logs" / "TinkAgent.log"
 
 
+def program_arguments(python: str) -> list[str]:
+    """Command launchd runs. `python` is either an interpreter (run the module) or
+    the Tink Agent.app launcher executable, which already knows what to run."""
+    if ".app/Contents/MacOS/" in python:
+        return [python]
+    return [python, "-u", "-m", "tink_agent"]
+
+
 def plist_contents(python: str, repo: str) -> str:
-    """LaunchAgent plist: run `python -u -m tink_agent` from the repo, at login."""
+    """LaunchAgent plist: run tink_agent (via the app or `python -m`) at login."""
+    args = "\n".join(f"    <string>{a}</string>" for a in program_arguments(python))
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -26,10 +35,7 @@ def plist_contents(python: str, repo: str) -> str:
   <key>Label</key><string>{LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{python}</string>
-    <string>-u</string>
-    <string>-m</string>
-    <string>tink_agent</string>
+{args}
   </array>
   <key>WorkingDirectory</key><string>{repo}</string>
   <key>RunAtLoad</key><true/>
@@ -82,7 +88,9 @@ def uninstall(plist_path: Path = PLIST_PATH, runner=subprocess.run) -> None:
 
 
 def current_python() -> str:
-    return sys.executable
+    """What launchd should run: the app launcher when running inside
+    Tink Agent.app (keeps its permissions identity), else this interpreter."""
+    return os.environ.get("TINK_AGENT_APP_EXEC") or sys.executable
 
 
 def repo_root() -> str:

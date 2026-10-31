@@ -6,7 +6,7 @@ set -euo pipefail
 REPO="${TINK_AGENT_REPO:-$(cd "$(dirname "$0")/.." && pwd -P)}"
 PY="${TINK_AGENT_PYTHON:-$REPO/.venv/bin/python}"
 
-"$PY" - <<'PYEOF'
+PYTHONPATH="$REPO" "$PY" - <<'PYEOF'
 from tink_agent import launchagent
 launchagent.uninstall()
 print(f"stopped + removed LaunchAgent: {launchagent.PLIST_PATH}")

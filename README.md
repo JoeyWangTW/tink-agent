@@ -195,6 +195,19 @@ The app also includes onboarding checks for this flow. If you want the hardware
 details, device schema, pitch-modulation notes, and firmware caveats, read
 [TING.md](TING.md).
 
+## Build the app (optional, recommended)
+
+`packaging/build_app.sh` builds `~/Applications/Tink Agent.app`: a small native
+launcher that embeds this checkout's `.venv` Python. It shows the Tink icon in the
+Dock, and macOS lists Microphone/Accessibility permissions under **Tink Agent**
+instead of Python. Then `packaging/install.sh` runs the app at login.
+
+```bash
+packaging/build_app.sh && packaging/install.sh
+```
+
+The app is ad-hoc signed, so macOS may ask for Accessibility again after a rebuild.
+
 ## Install with Homebrew
 
 ```bash

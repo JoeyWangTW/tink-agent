@@ -20,7 +20,7 @@ W, H = 460, 600
 _REPO = Path(__file__).resolve().parent.parent
 
 _CARD_SPECS = [
-    ("1", "Check permissions", "Microphone and Accessibility for Python.", "grant"),
+    ("1", "Check permissions", "Microphone and Accessibility for Tink Agent.", "grant"),
     ("2", "Connect the mic", "Ting or FX MIC: USB-C for files, line-out for audio.", None),
     ("3", "Load config", "Copy the tone config and samples onto the mic.", "copy"),
     ("4", "Verify", "Restart the mic, then press a button to confirm.", "arm"),
