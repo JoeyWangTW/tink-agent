@@ -40,7 +40,8 @@ def _macwhisper(config):
     cmd = [config.mw_binary, "transcribe", "{file}"]
     if config.stt_model:
         cmd += ["--model", config.stt_model]
-    return cmd, "last_line"
+    # mw wraps long transcripts across several lines; keep them all.
+    return cmd, "all"
 
 
 def _whisper_cpp(config):

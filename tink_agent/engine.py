@@ -74,7 +74,8 @@ class Engine:
             if self.logger:
                 self.logger.blocked(text, front)
             return
-        self.router.type_text(text)
+        # Trailing space so consecutive utterances don't run together.
+        self.router.type_text(text + " ")
         self._on_event("transcript", text)
         if self.logger:
             self.logger.transcript(text, front)

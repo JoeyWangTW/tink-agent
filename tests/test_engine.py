@@ -72,7 +72,7 @@ def test_speech_then_silence_types_transcript():
         eng.handle_block((rng.standard_normal(800) * 3000).astype(np.int16))
     for _ in range(20):
         eng.handle_block((rng.standard_normal(800) * 20).astype(np.int16))
-    assert ("type", "approve this") in kb.events
+    assert ("type", "approve this ") in kb.events
     assert any(k == "transcript" for k, _ in events)
 
 

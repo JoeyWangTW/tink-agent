@@ -71,7 +71,7 @@ def test_write_wav_roundtrip(tmp_path):
 def test_resolve_macwhisper_default():
     cmd, mode = resolve_stt(Config())
     assert cmd[:2] == ["/Applications/MacWhisper.app/Contents/MacOS/mw", "transcribe"]
-    assert "{file}" in cmd and mode == "last_line"
+    assert "{file}" in cmd and mode == "all"
 
 
 def test_resolve_macwhisper_includes_model():

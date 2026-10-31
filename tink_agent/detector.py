@@ -92,15 +92,19 @@ class ToneDetector:
 class VoiceGate:
     def __init__(self, rms_start, rms_end, hangover_ms,
                  min_utterance_ms, sample_rate, block_size,
-                 max_utterance_ms=30000):
+                 max_utterance_ms=30000, preroll_ms=300):
         self.rms_start = rms_start
         self.rms_end = rms_end
         block_ms = 1000 * block_size / sample_rate
         self._hangover_blocks = max(1, int(hangover_ms / block_ms))
         self._min_blocks = max(1, int(min_utterance_ms / block_ms))
         self._max_blocks = max(1, int(max_utterance_ms / block_ms))
+        # Quiet audio kept from just before onset so the first word isn't clipped.
+        self._preroll_blocks = max(0, int(preroll_ms / block_ms))
+        self._preroll: list[np.ndarray] = []
         self._active = False
         self._silence = 0
+        self._voiced = 0
         self._buf: list[np.ndarray] = []
 
     @property
@@ -110,9 +114,15 @@ class VoiceGate:
 
     def _close(self):
         blocks, self._buf = self._buf, []
+        # Trim the trailing silence that triggered the close; keep inner pauses
+        # intact so Whisper hears continuous speech, not spliced fragments.
+        if self._silence:
+            blocks = blocks[:max(0, len(blocks) - self._silence)]
+        voiced = self._voiced
         self._active = False
         self._silence = 0
-        if len(blocks) < self._min_blocks:
+        self._voiced = 0
+        if voiced < self._min_blocks or not blocks:
             return None
         return np.concatenate(blocks).astype(np.int16)
 
@@ -123,18 +133,27 @@ class VoiceGate:
             if rms >= self.rms_start:
                 self._active = True
                 self._silence = 0
+                self._buf, self._preroll = self._preroll, []
                 if not tone_active:
                     self._buf.append(block.astype(np.int16))
+                    self._voiced = 1
+            elif self._preroll_blocks and not tone_active:
+                self._preroll.append(block.astype(np.int16))
+                del self._preroll[:-self._preroll_blocks]
             return None
-        # active
-        if not tone_active and rms >= self.rms_end:
+        # active: keep every non-tone block (including quiet gaps between words)
+        if not tone_active:
             self._buf.append(block.astype(np.int16))
         if len(self._buf) >= self._max_blocks:
+            self._silence = 0
             return self._close()
         if rms < self.rms_end:
-            self._silence += 1
+            if not tone_active:
+                self._silence += 1
             if self._silence >= self._hangover_blocks:
                 return self._close()
         else:
             self._silence = 0
+            if not tone_active:
+                self._voiced += 1
         return None
