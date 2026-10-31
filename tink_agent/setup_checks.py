@@ -53,13 +53,31 @@ def request_accessibility(prompt_fn=None) -> None:
 
 _SAMPLE_NAMES = ("1.wav", "2.wav", "3.wav", "4.wav")
 
+# EP-2350 variants and the USB volume each mounts. Both read the same
+# config.json schema and the same root-level 1.wav..4.wav overrides.
+DEVICE_DISKS = (
+    ("TINGDISK", "Ting"),
+    ("FX MIC DISK", "FX MIC"),
+)
+
 
 def tingdisk_path(volumes="/Volumes", name="TINGDISK") -> str:
     return os.path.join(volumes, name)
 
 
+def find_device_disk(volumes="/Volumes", exists_fn=os.path.isdir):
+    """(path, model label) of the first mounted mic volume, or (None, None)."""
+    for name, label in DEVICE_DISKS:
+        path = os.path.join(volumes, name)
+        if exists_fn(path):
+            return path, label
+    return None, None
+
+
 def is_tingdisk_mounted(path=None, exists_fn=os.path.isdir) -> bool:
-    return bool(exists_fn(path or tingdisk_path()))
+    if path is not None:
+        return bool(exists_fn(path))
+    return find_device_disk(exists_fn=exists_fn)[0] is not None
 
 
 def audio_present(config, resolve_fn=None) -> bool:
@@ -72,19 +90,19 @@ def audio_present(config, resolve_fn=None) -> bool:
 
 
 def device_config_sources(repo_root):
-    """Repo-side files to copy onto TINK: config.json + samples/1..4.wav."""
+    """Repo-side files to copy onto the mic: config.json + samples/1..4.wav."""
     base = Path(repo_root) / "ting-config"
     return [base / "config.json"] + [base / "samples" / n for n in _SAMPLE_NAMES]
 
 
 def _dest_for(src, repo_root, tingdisk):
-    rel = Path(src).relative_to(Path(repo_root) / "ting-config")
-    return Path(tingdisk) / rel
+    # Everything lands at the volume root: config.json refers to "1.wav".."4.wav"
+    # and the firmware looks for sample overrides there, not in samples/.
+    return Path(tingdisk) / Path(src).name
 
 
 def copy_device_config(repo_root, tingdisk) -> None:
-    """Copy config + samples onto TINK (creates samples/)."""
-    (Path(tingdisk) / "samples").mkdir(parents=True, exist_ok=True)
+    """Copy config + samples onto the mic's volume root."""
     for src in device_config_sources(repo_root):
         shutil.copy2(str(src), str(_dest_for(src, repo_root, tingdisk)))
 

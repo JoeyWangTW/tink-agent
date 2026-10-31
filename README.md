@@ -85,8 +85,11 @@ his X post inspired this project.
 
 - **macOS** - tink-agent is a menu-bar app and installs as a LaunchAgent.
 - **Python 3.14** - the repo runs directly with `python -m tink_agent`.
-- **Teenage Engineering EP-2350 Ting** - the handheld mic, running on its own
-  batteries during normal use.
+- **Teenage Engineering EP-2350 Ting or FX MIC** - the handheld mic, running on its
+  own batteries during normal use. Both variants share the same firmware, `config.json`
+  schema and sample overrides; the FX MIC's disk mounts as `FX MIC DISK` instead of
+  `TINGDISK`, and its orange button also cycles extra factory effects (only the first
+  two positions carry the agent presets).
 - **Analog audio path** - Ting line-out into a USB audio adapter. On the reference
   setup this appears as `USB Audio Device`. This is the live connection; tink-agent
   does not use the Ting's USB-C port during normal operation.
@@ -179,9 +182,11 @@ accidentally press Enter.
 The app needs the Ting to play the expected tone samples. This is the one-time
 USB-C part of setup.
 
-1. Connect the Ting over USB-C and power it on so `TINGDISK` mounts.
-2. Wait for the `TINGDISK` volume to mount.
-3. Copy the contents of [`ting-config/`](ting-config/) to the root of `TINGDISK`.
+1. Connect the Ting over USB-C and power it on so `TINGDISK` (or `FX MIC DISK`) mounts.
+2. Wait for the volume to mount (or let the app's **Set up TINK** window do steps 3-4).
+3. Copy [`ting-config/config.json`](ting-config/) and the four files in
+   `ting-config/samples/` to the **root** of the volume. `config.json` refers to
+   `1.wav`..`4.wav` at the root, so don't copy the `samples/` folder itself.
 4. Restart the Ting. Device config is loaded only at boot.
 5. For normal use, disconnect USB-C. Run the Ting from its own batteries and connect
    only the line-out/audio jack to your USB audio adapter.

@@ -21,11 +21,11 @@ _REPO = Path(__file__).resolve().parent.parent
 
 _CARD_SPECS = [
     ("1", "Check permissions", "Microphone and Accessibility for Python.", "grant"),
-    ("2", "Connect TINK", "USB-C for files, line-out adapter for audio.", None),
+    ("2", "Connect the mic", "Ting or FX MIC: USB-C for files, line-out for audio.", None),
     ("3", "Load config", "Copy the tone config and samples onto the mic.", "copy"),
     ("4", "Verify", "Restart the mic, then press a button to confirm.", "arm"),
 ]
-_CARD_BTN_TITLES = {0: "Grant…", 2: "Copy files to TINK", 3: "I restarted it — listen"}
+_CARD_BTN_TITLES = {0: "Grant…", 2: "Copy files to mic", 3: "I restarted it — listen"}
 
 
 class OnboardingController(NSObject):
@@ -186,17 +186,18 @@ class OnboardingController(NSObject):
         if self.cards[0]["btn"] is not None:
             self.cards[0]["btn"].setHidden_(ok1)
 
-        mounted = setup_checks.is_tingdisk_mounted()
+        disk, model = setup_checks.find_device_disk()
+        mounted = disk is not None
         audio_ok = setup_checks.audio_present(c)
         ok2 = mounted and audio_ok
         self.cards[1]["row"].set_state("done" if ok2 else ("active" if ok1 else "pending"))
         self.cards[1]["row"].set_subtitle(
-            "TINK connected (files + audio)." if ok2 else
-            f"{'TINGDISK ok' if mounted else 'plug in USB-C'} · "
+            f"{model} connected (files + audio)." if ok2 else
+            f"{model + ' disk ok' if mounted else 'plug in USB-C'} · "
             f"{'audio ok' if audio_ok else 'connect line-out adapter'}")
         self._rebuild_devices()
 
-        files = mounted and setup_checks.files_match(_REPO, setup_checks.tingdisk_path())
+        files = mounted and setup_checks.files_match(_REPO, disk)
         self.cards[2]["row"].set_state("done" if files else ("active" if ok2 else "pending"))
         self.cards[2]["row"].set_subtitle(
             "Config + samples on TINK. Power-cycle the mic to load them."
@@ -229,9 +230,12 @@ class OnboardingController(NSObject):
     @objc.python_method
     def _copy(self):
         try:
-            setup_checks.copy_device_config(_REPO, setup_checks.tingdisk_path())
+            disk, _ = setup_checks.find_device_disk()
+            if disk is None:
+                raise FileNotFoundError("No TINGDISK or FX MIC DISK volume mounted.")
+            setup_checks.copy_device_config(_REPO, disk)
         except Exception as e:  # noqa: BLE001
-            rumps.alert("Couldn't copy to TINK", str(e))
+            rumps.alert("Couldn't copy to the mic", str(e))
 
     @objc.python_method
     def _arm(self):

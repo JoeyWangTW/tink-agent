@@ -60,8 +60,9 @@ def test_copy_then_files_match(tmp_path):
     assert setup_checks.files_match(REPO, tingdisk) is False
     setup_checks.copy_device_config(REPO, tingdisk)
     assert (tingdisk / "config.json").exists()
-    assert (tingdisk / "samples" / "1.wav").exists()
-    assert (tingdisk / "samples" / "4.wav").exists()
+    assert (tingdisk / "1.wav").exists()          # root, where config.json looks
+    assert (tingdisk / "4.wav").exists()
+    assert not (tingdisk / "samples").exists()
     assert setup_checks.files_match(REPO, tingdisk) is True
 
 
@@ -71,3 +72,19 @@ def test_files_match_false_on_size_diff(tmp_path):
     setup_checks.copy_device_config(REPO, tingdisk)
     (tingdisk / "config.json").write_text("x")  # wrong size
     assert setup_checks.files_match(REPO, tingdisk) is False
+
+
+def test_find_device_disk_prefers_ting_then_fx():
+    present = {"/V/FX MIC DISK"}
+    assert setup_checks.find_device_disk("/V", exists_fn=present.__contains__) == \
+        ("/V/FX MIC DISK", "FX MIC")
+    present.add("/V/TINGDISK")
+    assert setup_checks.find_device_disk("/V", exists_fn=present.__contains__) == \
+        ("/V/TINGDISK", "Ting")
+    assert setup_checks.find_device_disk("/V", exists_fn=lambda p: False) == (None, None)
+
+
+def test_bundled_config_references_root_samples():
+    import json
+    cfg = json.loads((Path(REPO) / "ting-config" / "config.json").read_text())
+    assert sorted(s["file"] for s in cfg["samples"]) == ["1.wav", "2.wav", "3.wav", "4.wav"]
