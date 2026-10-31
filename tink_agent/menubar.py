@@ -118,6 +118,7 @@ class TinkAgentApp(rumps.App):
     def _tick(self, _):
         if not self._autostart_done:
             self._autostart_done = True
+            _request_missing_permissions()
             self.start_listening(None)
         if not self.config.onboarding_done and not self._onboarding_shown:
             self._onboarding_shown = True
@@ -292,6 +293,24 @@ class TinkAgentApp(rumps.App):
 
     def open_config(self, _):
         subprocess.run(["open", str(DEFAULT_PATH)])
+
+
+def _request_missing_permissions():
+    """Ask for Microphone/Accessibility if not yet granted. The requests are what
+    make macOS list this app (e.g. a freshly built Tink Agent.app) in Privacy &
+    Security; until then it can only be added by hand."""
+    from . import setup_checks
+    for name, needed, request in (
+        ("microphone", lambda: setup_checks.mic_status() == "undetermined",
+         setup_checks.request_mic),
+        ("accessibility", lambda: not setup_checks.accessibility_trusted(),
+         setup_checks.request_accessibility),
+    ):
+        try:
+            if needed():
+                request()
+        except Exception as e:  # noqa: BLE001 — never block startup on this
+            print(f"[perms] {name} request failed: {e}", flush=True)
 
 
 def _set_regular_policy():

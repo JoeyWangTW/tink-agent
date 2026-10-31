@@ -16,11 +16,21 @@ _MIC_MEDIA_TYPE = "soun"  # AVMediaTypeAudio four-char code
 _MIC_STATUS = {0: "undetermined", 1: "restricted", 2: "denied", 3: "authorized"}
 
 
+def _av_capture_device():
+    # AVFoundation bindings carry the completion-handler block signature; the
+    # class looked up via Quartz does not, so requesting access through it fails.
+    try:
+        import AVFoundation
+        return AVFoundation.AVCaptureDevice
+    except ImportError:
+        import Quartz
+        return Quartz.AVCaptureDevice
+
+
 def mic_status(query_fn=None) -> str:
     """Microphone authorization: authorized|denied|undetermined|restricted."""
     if query_fn is None:
-        import Quartz
-        query_fn = lambda: Quartz.AVCaptureDevice.authorizationStatusForMediaType_(  # noqa: E731
+        query_fn = lambda: _av_capture_device().authorizationStatusForMediaType_(  # noqa: E731
             _MIC_MEDIA_TYPE)
     return _MIC_STATUS.get(int(query_fn()), "undetermined")
 
@@ -28,8 +38,7 @@ def mic_status(query_fn=None) -> str:
 def request_mic(callback=None, request_fn=None) -> None:
     """Trigger the OS microphone-permission prompt (no-op if already decided)."""
     if request_fn is None:
-        import Quartz
-        request_fn = Quartz.AVCaptureDevice.requestAccessForMediaType_completionHandler_
+        request_fn = _av_capture_device().requestAccessForMediaType_completionHandler_
     request_fn(_MIC_MEDIA_TYPE, callback or (lambda granted: None))
 
 

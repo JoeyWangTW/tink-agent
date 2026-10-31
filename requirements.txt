@@ -3,3 +3,4 @@ numpy>=1.26
 pynput>=1.7.6
 rumps>=0.4.0
 pytest>=8.0
+pyobjc-framework-AVFoundation>=10
