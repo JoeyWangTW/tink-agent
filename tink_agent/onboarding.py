@@ -186,27 +186,33 @@ class OnboardingController(NSObject):
         if self.cards[0]["btn"] is not None:
             self.cards[0]["btn"].setHidden_(ok1)
 
+        # A tone heard after arming proves the whole chain: audio path works and
+        # the tone config is loaded on the mic. That stands in for steps 2-3,
+        # whose disk checks fail once USB-C is unplugged for normal use.
+        heard = (self._armed_at is not None
+                 and self.app._last_tone_at > self._armed_at)
+
         disk, model = setup_checks.find_device_disk()
         mounted = disk is not None
         audio_ok = setup_checks.audio_present(c)
-        ok2 = mounted and audio_ok
+        ok2 = heard or (mounted and audio_ok)
         self.cards[1]["row"].set_state("done" if ok2 else ("active" if ok1 else "pending"))
         self.cards[1]["row"].set_subtitle(
+            "Mic connected (audio verified by a button tone)." if heard and not mounted else
             f"{model} connected (files + audio)." if ok2 else
             f"{model + ' disk ok' if mounted else 'plug in USB-C'} · "
             f"{'audio ok' if audio_ok else 'connect line-out adapter'}")
         self._rebuild_devices()
 
-        files = mounted and setup_checks.files_match(_REPO, disk)
+        files = heard or (mounted and setup_checks.files_match(_REPO, disk))
         self.cards[2]["row"].set_state("done" if files else ("active" if ok2 else "pending"))
         self.cards[2]["row"].set_subtitle(
-            "Config + samples on TINK. Power-cycle the mic to load them."
+            "Tone config is loaded on the mic." if heard else
+            "Config + samples on the mic. Power-cycle it to load them."
             if files else "Copy the tone config and samples onto the mic.")
         if self.cards[2]["btn"] is not None:
             self.cards[2]["btn"].setHidden_(not (mounted and not files))
 
-        heard = (self._armed_at is not None
-                 and self.app._last_tone_at > self._armed_at)
         if heard:
             verify_sub = f"Heard slot {self.app._last_tone_slot} — TINK works!"
         elif self._armed_at is None:
@@ -215,12 +221,15 @@ class OnboardingController(NSObject):
             verify_sub = "Audio adapter not detected — reconnect it (step 2)."
         else:
             verify_sub = "Listening… press a mic button (green, then white)."
-        self.cards[3]["row"].set_state("done" if heard else ("active" if files else "pending"))
+        self.cards[3]["row"].set_state(
+            "done" if heard else ("active" if (files or audio_ok) else "pending"))
         self.cards[3]["row"].set_subtitle(verify_sub)
         if self.cards[3]["btn"] is not None:
             self.cards[3]["btn"].setHidden_(not (audio_ok and not heard))
 
-        self.btn_continue.setEnabled_(ok1 and ok2 and files and heard)
+        # Verification is the real gate; missing permissions stay flagged in step 1
+        # rather than trapping the user in this window.
+        self.btn_continue.setEnabled_(heard)
 
     @objc.python_method
     def _grant(self):
