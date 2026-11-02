@@ -331,7 +331,29 @@ def _set_regular_policy():
         pass
 
 
+def _another_instance_running() -> bool:
+    """True if another Tink Agent process is already running (e.g. the login
+    LaunchAgent one when the app is also opened from Finder). Two instances
+    would both listen and double every keystroke."""
+    try:
+        from AppKit import NSRunningApplication
+        from Foundation import NSProcessInfo
+        bundle_id = launchagent.LABEL
+        me = NSProcessInfo.processInfo().processIdentifier()
+        others = [a for a in NSRunningApplication
+                  .runningApplicationsWithBundleIdentifier_(bundle_id)
+                  if a.processIdentifier() != me]
+        for other in others:
+            other.activateWithOptions_(0)
+        return bool(others)
+    except Exception:  # noqa: BLE001 — never block startup on this check
+        return False
+
+
 def main():
+    if _another_instance_running():
+        print("[main] Tink Agent is already running; exiting", flush=True)
+        return
     app = TinkAgentApp()
     _set_regular_policy()
     app.run()
