@@ -239,7 +239,7 @@ class OnboardingController(NSObject):
 
     @objc.python_method
     def _arm(self):
-        self.app.start_listening(None)
+        self.app.set_enabled(True)  # verifying needs the mic open and acting
         self._armed_at = time.monotonic()
 
     @objc.python_method

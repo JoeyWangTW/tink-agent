@@ -71,3 +71,24 @@ def test_restore_default_slot_actions_resets_and_updates_router():
     assert cfg.slot_actions == Config().slot_actions       # back to factory map
     assert router.slot_actions == Config().slot_actions     # applied to live router
     assert calls == ["save"]
+
+
+def _enable_app():
+    app, calls = _fake_app(None)
+    app.engine = SimpleNamespace(enabled=True)
+    app.config.enabled = True
+    app.enabled_item = SimpleNamespace(state=True)
+    return app, calls
+
+
+def test_disable_closes_mic_stream():
+    app, calls = _enable_app()
+    TinkAgentApp.set_enabled(app, False)
+    assert app.engine.enabled is False and app.config.enabled is False
+    assert calls == ["save", "stop"]
+
+
+def test_enable_reopens_mic_stream():
+    app, calls = _enable_app()
+    TinkAgentApp.set_enabled(app, True)
+    assert calls == ["save", "start"]

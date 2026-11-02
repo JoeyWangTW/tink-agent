@@ -119,7 +119,8 @@ class TinkAgentApp(rumps.App):
         if not self._autostart_done:
             self._autostart_done = True
             _request_missing_permissions()
-            self.start_listening(None)
+            if self.config.enabled:  # disabled = mic closed, even across restarts
+                self.start_listening(None)
         if not self.config.onboarding_done and not self._onboarding_shown:
             self._onboarding_shown = True
             self.open_onboarding(None)
@@ -131,7 +132,7 @@ class TinkAgentApp(rumps.App):
         base = "listening" if listening else "stopped"
         shown = self._status if self._status.startswith("error") else base
         if not self.engine.enabled:
-            shown = f"{base} (disabled)"
+            shown = "disabled (mic off)"
         self.status_item.title = f"status: {shown}{' • capturing' if capturing else ''}"
         if self._settings is not None and self.window_is_visible():
             self._settings.refresh()
@@ -148,6 +149,12 @@ class TinkAgentApp(rumps.App):
         self.config.enabled = bool(value)
         self.config.save()
         self.enabled_item.state = bool(value)
+        # Close the input stream when disabled so macOS's mic-in-use indicator
+        # goes away; reopen it when re-enabled.
+        if value:
+            self.start_listening(None)
+        else:
+            self.stop_listening(None)
 
     def set_listening(self, value: bool):
         if value:
