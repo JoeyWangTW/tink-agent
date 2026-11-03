@@ -92,7 +92,8 @@ class ToneDetector:
 class VoiceGate:
     def __init__(self, rms_start, rms_end, hangover_ms,
                  min_utterance_ms, sample_rate, block_size,
-                 max_utterance_ms=30000, preroll_ms=300):
+                 max_utterance_ms=30000, preroll_ms=300,
+                 release_rms=0, release_ms=150):
         self.rms_start = rms_start
         self.rms_end = rms_end
         block_ms = 1000 * block_size / sample_rate
@@ -102,6 +103,11 @@ class VoiceGate:
         # Quiet audio kept from just before onset so the first word isn't clipped.
         self._preroll_blocks = max(0, int(preroll_ms / block_ms))
         self._preroll: list[np.ndarray] = []
+        # Near-digital silence means the push-to-talk handle was let go; close
+        # right away instead of waiting out the hangover. 0 disables.
+        self.release_rms = release_rms
+        self._release_blocks = max(1, int(release_ms / block_ms))
+        self._dead = 0
         self._active = False
         self._silence = 0
         self._voiced = 0
@@ -122,6 +128,7 @@ class VoiceGate:
         self._active = False
         self._silence = 0
         self._voiced = 0
+        self._dead = 0
         if voiced < self._min_blocks or not blocks:
             return None
         return np.concatenate(blocks).astype(np.int16)
@@ -150,10 +157,13 @@ class VoiceGate:
         if rms < self.rms_end:
             if not tone_active:
                 self._silence += 1
-            if self._silence >= self._hangover_blocks:
+            self._dead = self._dead + 1 if rms < self.release_rms else 0
+            if (self._silence >= self._hangover_blocks
+                    or (self._dead >= self._release_blocks and self._silence)):
                 return self._close()
         else:
             self._silence = 0
+            self._dead = 0
             if not tone_active:
                 self._voiced += 1
         return None

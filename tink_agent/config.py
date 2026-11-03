@@ -23,9 +23,13 @@ class Config:
     vad_rms_start: float = 800
     vad_rms_end: float = 500
     vad_hangover_ms: int = 800
+    # Below this level the handle is released (line goes dead): end the
+    # utterance after vad_release_ms instead of the full hangover. 0 disables.
+    vad_release_rms: float = 30
+    vad_release_ms: int = 150
     min_utterance_ms: int = 400
     max_utterance_ms: int = 30000
-    stt_model: str = ""  # "" = mw's currently selected model (Large v3 Turbo)
+    stt_model: str = ""  # "" = the model currently selected in MacWhisper
     mw_binary: str = MW_BINARY
     # Transcription backend. "macwhisper" | "whisper-cpp" | "openai-whisper" use
     # built-in command templates; "custom" uses stt_command/stt_output below.

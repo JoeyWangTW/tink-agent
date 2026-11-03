@@ -69,3 +69,27 @@ def test_long_utterance_force_closed_at_cap():
     # The first utterance must be bounded to ~cap blocks, not all 12 blocks
     cap_blocks = max(1, int(cap_ms / (1000 * BLOCK / SR)))  # 5
     assert len(utterances[0]) <= cap_blocks * BLOCK
+
+
+def _release_gate():
+    return VoiceGate(rms_start=800, rms_end=500, hangover_ms=1500,
+                     min_utterance_ms=100, sample_rate=SR, block_size=BLOCK,
+                     release_rms=30, release_ms=150)
+
+
+def test_released_handle_closes_before_hangover():
+    g = _release_gate()
+    for b in _blocks(3000, 10):
+        assert g.process(b, False) is None
+    out = [g.process(b, False) for b in _blocks(4, 3)]   # dead line, 150 ms
+    assert out[-1] is not None and all(o is None for o in out[:-1])
+    assert len(out[-1]) == BLOCK * 10                     # dead tail trimmed
+
+
+def test_quiet_pause_while_holding_waits_for_hangover():
+    g = _release_gate()
+    for b in _blocks(3000, 10):
+        g.process(b, False)
+    out = [g.process(b, False) for b in _blocks(100, 10)]  # room noise, 500 ms
+    assert all(o is None for o in out)
+    assert g.active

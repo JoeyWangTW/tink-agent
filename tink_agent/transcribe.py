@@ -37,7 +37,8 @@ def write_wav(samples: np.ndarray, path, sample_rate: int) -> None:
 # --- backend presets -------------------------------------------------------
 
 def _macwhisper(config):
-    cmd = [config.mw_binary, "transcribe", "{file}"]
+    # Speaker detection is wasted work on one dictating voice (~0.15 s a run).
+    cmd = [config.mw_binary, "transcribe", "--no-speakers", "{file}"]
     if config.stt_model:
         cmd += ["--model", config.stt_model]
     # mw wraps long transcripts across several lines; keep them all.

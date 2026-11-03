@@ -77,7 +77,8 @@ class TinkAgentApp(rumps.App):
                            tonality_min=c.tone_tonality_min)
         vg = VoiceGate(c.vad_rms_start, c.vad_rms_end, c.vad_hangover_ms,
                        c.min_utterance_ms, c.sample_rate, c.block_size,
-                       c.max_utterance_ms)
+                       c.max_utterance_ms, release_rms=c.vad_release_rms,
+                       release_ms=c.vad_release_ms)
         tr = self._make_transcriber()
         router = ActionRouter(c.slot_actions, dispatch=_main_thread_dispatch)
         self.activity_log = ActivityLogger(
