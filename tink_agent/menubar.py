@@ -31,14 +31,14 @@ def _main_thread_dispatch(fn):
 class TinkAgentApp(rumps.App):
     def __init__(self):
         # No dropdown menu (and so no rumps Quit item): clicking the icon opens
-        # the settings popover, which carries its own Quit link.
+        # the settings panel, which carries its own Quit link.
         super().__init__("Tink Agent", icon=ICON_IDLE, template=True,
                          quit_button=None)
         self.config = Config.load()
         self.engine = self._build_engine()
         self.capture = None
-        self._settings = None  # settings panel, hosted in the status-item popover
-        self._popover = None
+        self._settings = None  # settings view, shown in the menu-bar panel
+        self._panel = None
         self._button_actions = None  # lazily-created Button Actions window
 
         # State stashed from background threads (atomic attribute writes); the
@@ -110,7 +110,7 @@ class TinkAgentApp(rumps.App):
     def _tick(self, _):
         if not self._autostart_done:
             self._autostart_done = True
-            self._install_popover()
+            self._install_panel()
             _request_missing_permissions()
             if self.config.enabled:  # disabled = mic closed, even across restarts
                 self.start_listening(None)
@@ -139,7 +139,7 @@ class TinkAgentApp(rumps.App):
 
     def window_is_visible(self) -> bool:
         try:
-            return bool(self._popover.isShown())
+            return self._panel.is_visible()
         except Exception:  # noqa: BLE001
             return False
 
@@ -265,55 +265,50 @@ class TinkAgentApp(rumps.App):
             return
         subprocess.run(["open", str(p)])
 
-    # --- status-item popover ---
-    def _install_popover(self):
-        """Swap rumps' dropdown for a popover: one click on the icon shows the
-        settings panel directly."""
-        from AppKit import NSAppearance, NSAppearanceNameAqua, NSPopover, NSViewController
+    # --- menu-bar panel ---
+    def _install_panel(self):
+        """Replace rumps' dropdown with a panel: one click on the icon shows
+        the settings directly."""
         from . import theme
         from .settings_ui import SettingsController
+        from .status_panel import StatusPanel
         item = self._nsapp.nsstatusitem
         item.setMenu_(None)
         self._settings = SettingsController.alloc().initWithApp_(self)
-        vc = NSViewController.alloc().init()
-        vc.setView_(self._settings.view)
-        pop = NSPopover.alloc().init()
-        pop.setContentViewController_(vc)
-        pop.setContentSize_(self._settings.view.frame().size)
-        pop.setBehavior_(1)  # NSPopoverBehaviorTransient: closes on click outside
-        pop.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameAqua))
-        self._popover = pop
-        self._popover_target = theme._Target.alloc().initWithCb_(self.toggle_settings)
-        item.button().setTarget_(self._popover_target)
+        self._panel = StatusPanel(item, self._settings.view)
+        self._panel_target = theme._Target.alloc().initWithCb_(self.toggle_settings)
+        item.button().setTarget_(self._panel_target)
         item.button().setAction_("fire:")
 
     def toggle_settings(self):
         if self.window_is_visible():
-            self._popover.performClose_(None)
+            self._panel.close()
         else:
             self.open_settings(None)
 
     def open_settings(self, _):
-        if self._popover is None:
+        if self._panel is None:
             return
-        from AppKit import NSApplication, NSMinYEdge
         self._settings.refresh()
-        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        btn = self._nsapp.nsstatusitem.button()
-        self._popover.showRelativeToRect_ofView_preferredEdge_(
-            btn.bounds(), btn, NSMinYEdge)
+        self._panel.show()
 
     def quit(self):
         self.stop_listening(None)
         rumps.quit_application()
 
+    def _close_panel(self):
+        if self._panel is not None:
+            self._panel.close()
+
     def open_button_actions(self, _=None):
+        self._close_panel()
         if self._button_actions is None:
             from .button_actions import ButtonActionsController
             self._button_actions = ButtonActionsController.alloc().initWithApp_(self)
         self._button_actions.show()
 
     def open_onboarding(self, _=None):
+        self._close_panel()
         if self._onboarding is None:
             from .onboarding import OnboardingController
             self._onboarding = OnboardingController.alloc().initWithApp_(self)

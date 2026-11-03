@@ -1,6 +1,6 @@
 """Native (AppKit) settings panel for TinkAgent — themed via theme.py.
 
-The panel is a plain view shown in the menu-bar icon's popover.
+The panel is a plain view shown in the menu-bar icon's drop-down panel.
 
 Every control delegates to TinkAgentApp setter methods, which own logic and
 persistence. Must be used on the main thread.
