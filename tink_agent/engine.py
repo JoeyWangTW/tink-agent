@@ -77,6 +77,7 @@ class Engine:
         model can take 5-20 s to answer). Returns True if one was queued."""
         now = time.monotonic() if now is None else now
         if (not idle_s or not self.enabled or self._warming
+                or not getattr(self.transcriber, "needs_warm", True)
                 or (self.is_capturing and not during_speech)
                 or now - self._last_stt < idle_s):
             return False

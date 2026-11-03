@@ -34,6 +34,10 @@ class Config:
     stt_keep_warm_s: int = 60
     # Also warm at speech onset when STT has been idle this long. 0 disables.
     stt_onset_warm_s: int = 30
+    # stt_backend "local-server": the dictation-server to POST audio to.
+    stt_server_url: str = "http://127.0.0.1:8766"
+    stt_server_engine: str = ""   # "" = server default; "parakeet" | "whisper"
+    stt_language: str = ""        # e.g. "zh" for Whisper; "" = auto-detect
     stt_model: str = ""  # "" = the model currently selected in MacWhisper
     mw_binary: str = MW_BINARY
     # Transcription backend. "macwhisper" | "whisper-cpp" | "openai-whisper" use

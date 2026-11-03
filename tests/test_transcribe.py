@@ -95,3 +95,33 @@ def test_resolve_custom_uses_config_command():
 
 def test_custom_in_backend_order():
     assert BACKEND_ORDER[-1] == "custom"
+
+
+def test_server_transcriber_posts_pcm_and_reads_text():
+    import io, json
+    import numpy as np
+    from tink_agent.transcribe import ServerTranscriber
+    seen = {}
+
+    def opener(req, timeout):
+        seen["url"], seen["body"] = req.full_url, req.data
+        return io.BytesIO(json.dumps({"text": " hello there "}).encode())
+
+    t = ServerTranscriber("http://127.0.0.1:8766/", "whisper", "zh", opener=opener)
+    out = t.transcribe(np.array([1, -2, 3], dtype=np.int16), 16000)
+    assert out == "hello there" and t.last_error is None
+    assert seen["url"].startswith("http://127.0.0.1:8766/transcribe?")
+    assert "engine=whisper" in seen["url"] and "language=zh" in seen["url"]
+    assert seen["body"] == np.array([1, -2, 3], dtype=np.int16).tobytes()
+
+
+def test_server_transcriber_reports_unreachable():
+    import numpy as np
+    from tink_agent.transcribe import ServerTranscriber
+
+    def opener(req, timeout):
+        raise OSError("connection refused")
+
+    t = ServerTranscriber("http://127.0.0.1:1", opener=opener)
+    assert t.transcribe(np.zeros(10, dtype=np.int16), 16000) == ""
+    assert "not reachable" in t.last_error

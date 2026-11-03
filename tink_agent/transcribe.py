@@ -15,7 +15,11 @@ output_mode controls how the transcript is read:
 Built-in presets live in PRESETS; "custom" uses config.stt_command/stt_output.
 """
 from __future__ import annotations
+import json
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 import tempfile
 import wave
 from pathlib import Path
@@ -61,8 +65,19 @@ PRESETS = {
     "whisper-cpp": ("whisper.cpp", _whisper_cpp),
     "openai-whisper": ("openai-whisper", _openai_whisper),
 }
-BACKEND_ORDER = ["macwhisper", "whisper-cpp", "openai-whisper", "custom"]
-BACKEND_LABELS = {k: v[0] for k, v in PRESETS.items()} | {"custom": "Custom (edit config)"}
+BACKEND_ORDER = ["local-server", "macwhisper", "whisper-cpp", "openai-whisper", "custom"]
+BACKEND_LABELS = ({"local-server": "Local server (fastest)"}
+                  | {k: v[0] for k, v in PRESETS.items()}
+                  | {"custom": "Custom (edit config)"})
+
+
+def make_transcriber(config):
+    """The transcriber for config.stt_backend."""
+    if (getattr(config, "stt_backend", "") or "") == "local-server":
+        return ServerTranscriber(config.stt_server_url, config.stt_server_engine,
+                                 config.stt_language)
+    cmd, mode = resolve_stt(config)
+    return Transcriber(cmd, mode)
 
 
 def resolve_stt(config):
@@ -78,7 +93,43 @@ def resolve_stt(config):
 
 # --- the transcriber -------------------------------------------------------
 
+class ServerTranscriber:
+    """POSTs raw 16-bit PCM to a local dictation-server, which keeps its model
+    loaded in memory: no process launch or temp file per utterance."""
+
+    needs_warm = False  # the server keeps itself warm
+
+    def __init__(self, url, engine="", language="", opener=urllib.request.urlopen):
+        self.url = url.rstrip("/")
+        self.engine = engine
+        self.language = language
+        self._open = opener
+        self.last_error: str | None = None
+
+    def transcribe(self, samples: np.ndarray, sample_rate: int) -> str:
+        self.last_error = None
+        q = {"sample_rate": sample_rate}
+        if self.engine:
+            q["engine"] = self.engine
+        if self.language:
+            q["language"] = self.language
+        body = np.asarray(samples, dtype=np.int16).reshape(-1).tobytes()
+        req = urllib.request.Request(
+            f"{self.url}/transcribe?{urllib.parse.urlencode(q)}", data=body,
+            method="POST", headers={"Content-Type": "application/octet-stream"})
+        try:
+            with self._open(req, timeout=60) as r:
+                return (json.load(r).get("text") or "").strip()
+        except urllib.error.HTTPError as e:
+            self.last_error = f"dictation server: {e.read().decode(errors='replace')[:200]}"
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"dictation server not reachable at {self.url} ({e})"
+        return ""
+
+
 class Transcriber:
+    needs_warm = True
+
     def __init__(self, command, output_mode="last_line", runner=subprocess.run):
         self.command = list(command)
         self.output_mode = output_mode

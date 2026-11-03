@@ -7,7 +7,7 @@ import rumps
 from .config import Config, DEFAULT_PATH
 from .audio import AudioCapture, DeviceNotFound, reinitialize as audio_reinitialize
 from .detector import ToneDetector, VoiceGate
-from .transcribe import Transcriber, resolve_stt
+from .transcribe import Transcriber, make_transcriber, resolve_stt
 from .actions import ActionRouter
 from .engine import Engine
 from .activity_log import ActivityLogger, DEFAULT_LOG
@@ -79,8 +79,7 @@ class TinkAgentApp(rumps.App):
                       logger=self.activity_log)
 
     def _make_transcriber(self) -> Transcriber:
-        cmd, mode = resolve_stt(self.config)
-        return Transcriber(cmd, mode)
+        return make_transcriber(self.config)
 
     @property
     def log_path(self):
