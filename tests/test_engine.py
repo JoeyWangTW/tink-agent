@@ -212,3 +212,10 @@ def test_keep_warm_skips_when_disabled_or_capturing():
     eng.voicegate.active = True
     assert eng.keep_warm(120, now=1000.0) is False
     assert tr.calls == 0
+
+
+def test_keep_warm_at_speech_onset_even_while_capturing():
+    eng, tr = _warm_engine()
+    eng.voicegate.active = True
+    assert eng.keep_warm(30, now=1000.0, during_speech=True) is True
+    assert tr.calls == 1

@@ -387,7 +387,28 @@ def _another_instance_running() -> bool:
         return False
 
 
+LOG_PATH = Path.home() / "Library" / "Logs" / "TinkAgent.log"
+
+
+def _log_to_file():
+    """Send stdout/stderr to the log however we were launched. launchd already
+    does this, but a copy opened from Finder would otherwise log nowhere."""
+    if sys.stdout is not None and sys.stdout.isatty():
+        return
+    try:
+        import os
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(LOG_PATH, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        os.dup2(fd, 1)
+        os.dup2(fd, 2)
+        os.close(fd)
+    except OSError:
+        pass
+
+
 def main():
+    _log_to_file()
+    print(f"[main] starting (pid {__import__('os').getpid()})", flush=True)
     if _another_instance_running():
         print("[main] Tink Agent is already running; exiting", flush=True)
         return

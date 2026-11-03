@@ -62,16 +62,22 @@ class Engine:
                 self._on_event("blocked", slot)
                 if self.logger:
                     self.logger.blocked(f"slot{slot}", front)
+        was_open = self.is_capturing
         utterance = self.voicegate.process(block, self.detector.tone_active)
+        if self.is_capturing and not was_open:
+            # Speech just started: if the model may have gone cold, page it back
+            # in now, while the user is still talking.
+            self.keep_warm(self.config.stt_onset_warm_s, during_speech=True)
         if utterance is not None:
             self._submit(lambda u=utterance: self._handle_utterance(u))
 
-    def keep_warm(self, idle_s, now=None) -> bool:
+    def keep_warm(self, idle_s, now=None, during_speech=False) -> bool:
         """Queue a throwaway transcription if the STT engine has sat idle for
         idle_s, so its model stays resident instead of being paged out (a cold
         model can take 5-20 s to answer). Returns True if one was queued."""
         now = time.monotonic() if now is None else now
-        if (not idle_s or not self.enabled or self._warming or self.is_capturing
+        if (not idle_s or not self.enabled or self._warming
+                or (self.is_capturing and not during_speech)
                 or now - self._last_stt < idle_s):
             return False
         self._warming = True
@@ -83,7 +89,9 @@ class Engine:
         try:
             rng = np.random.default_rng()
             hiss = (rng.standard_normal(self.config.sample_rate // 2) * 10).astype(np.int16)
+            t0 = time.monotonic()
             self.transcriber.transcribe(hiss, self.config.sample_rate)
+            print(f"[warm] {time.monotonic() - t0:.2f}s", flush=True)
         except Exception:  # noqa: BLE001 — warming is best effort
             pass
         finally:
