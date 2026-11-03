@@ -48,7 +48,7 @@ class Config:
     # "com.apple.Terminal"). Empty list = act in any app.
     target_apps: list = field(default_factory=list)
     target_app: str = ""  # legacy single value; migrated into target_apps on load
-    output_mode: str = "type"
+    output_mode: str = "paste"  # paste (clipboard + Cmd+V) | type (keystrokes)
     enabled: bool = True
     start_at_login: bool = False
     # First-run onboarding ("Set up TINK") completed at least once.

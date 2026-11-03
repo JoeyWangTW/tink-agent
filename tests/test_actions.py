@@ -199,3 +199,59 @@ def test_unknown_action_is_safe_noop():
     r = ActionRouter({1: "bogus"}, keyboard=kb)
     assert r.fire_slot(1) == "bogus"                # returned for logging
     assert kb.events == []                          # but nothing performed
+
+
+class FakePasteboard:
+    """Minimal NSPasteboard stand-in: one item of {type: data}."""
+
+    def __init__(self, saved=None):
+        self.items = [dict(saved)] if saved else []
+        self.count = 0
+
+    def pasteboardItems(self):
+        return [_FakeItem(d) for d in self.items]
+
+    def clearContents(self):
+        self.items = []
+        self.count += 1
+
+    def setString_forType_(self, s, t):
+        if not self.items:
+            self.items.append({})
+        self.items[0][t] = s
+
+    def changeCount(self):
+        return self.count
+
+
+class _FakeItem:
+    def __init__(self, d): self.d = d
+    def types(self): return list(self.d)
+    def dataForType_(self, t): return self.d[t]
+
+
+def test_paste_mode_pastes_with_cmd_v(monkeypatch):
+    import tink_agent.actions as actions
+    timers = []
+    monkeypatch.setattr(actions.threading, "Timer",
+                        lambda s, fn: timers.append(fn) or _NoTimer())
+    kb, pb = FakeKeyboard(), FakePasteboard({"public.utf8-plain-text": b"old"})
+    r = ActionRouter({}, keyboard=kb, output_mode="paste", pasteboard=pb)
+    r.type_text("你好 ")
+    assert pb.items[0][actions.PB_STRING] == "你好 "
+    assert actions.PB_TRANSIENT in pb.items[0]
+    assert ("press", "v") in kb.events and ("type", "你好 ") not in kb.events
+    assert len(timers) == 1                      # clipboard restore scheduled
+
+
+def test_restore_skipped_if_user_copied_meanwhile():
+    kb, pb = FakeKeyboard(), FakePasteboard()
+    r = ActionRouter({}, keyboard=kb, output_mode="paste", pasteboard=pb)
+    pb.count = 5
+    r._restore_clipboard((4, [{"public.utf8-plain-text": b"old"}]))
+    assert pb.count == 5                          # untouched
+
+
+class _NoTimer:
+    daemon = False
+    def start(self): pass

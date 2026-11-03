@@ -71,7 +71,8 @@ class TinkAgentApp(rumps.App):
                        c.max_utterance_ms, release_rms=c.vad_release_rms,
                        release_ms=c.vad_release_ms)
         tr = self._make_transcriber()
-        router = ActionRouter(c.slot_actions, dispatch=_main_thread_dispatch)
+        router = ActionRouter(c.slot_actions, dispatch=_main_thread_dispatch,
+                              output_mode=c.output_mode)
         self.activity_log = ActivityLogger(
             enabled=c.log_activity, path=(c.log_path or None))
         return Engine(c, det, vg, tr, router, on_event=self._on_event,
@@ -194,6 +195,11 @@ class TinkAgentApp(rumps.App):
         self.config.stt_backend = name
         self.config.save()
         self.engine.transcriber = self._make_transcriber()
+
+    def set_output_mode(self, mode: str):
+        self.config.output_mode = mode
+        self.config.save()
+        self.engine.router.output_mode = mode
 
     def set_log_activity(self, value: bool):
         self.config.log_activity = bool(value)

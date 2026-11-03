@@ -1,4 +1,5 @@
 from __future__ import annotations
+import threading
 
 # Catalog of selectable per-slot actions: the single source of truth shared by
 # the router (what an id does, below) and the Button Actions UI (label + glyph).
@@ -149,9 +150,20 @@ def normalize_keys(spec: str) -> str:
                     for mods, key in parse_keys(spec))
 
 
+PB_STRING = "public.utf8-plain-text"
+PB_TRANSIENT = "org.nspasteboard.TransientType"
+PASTE_RESTORE_S = 0.5
+
+
 class ActionRouter:
-    def __init__(self, slot_actions, keyboard=None, dispatch=None):
+    def __init__(self, slot_actions, keyboard=None, dispatch=None,
+                 output_mode="type", pasteboard=None):
         self.slot_actions = dict(slot_actions)
+        # "paste": put the text on the clipboard and press Cmd+V, then restore
+        # the clipboard. Works under any input method (Chinese, Japanese, ...),
+        # which would otherwise compose synthetic keystrokes. "type": keystrokes.
+        self.output_mode = output_mode
+        self._pb = pasteboard  # injected (tests) or NSPasteboard.generalPasteboard
         self._kb = keyboard  # injected (tests) or lazy pynput controller
         # All pynput calls must run on the main thread: on macOS pynput queries
         # the keyboard layout via HIToolbox TSM, which traps (SIGTRAP via
@@ -233,7 +245,7 @@ class ActionRouter:
             ch = action[-1]
             kb.press(ch); kb.release(ch)
         elif action.startswith("type:"):
-            self._do_type(action[len("type:"):])
+            self._emit_text(action[len("type:"):])
             kb.press(Key.enter); kb.release(Key.enter)
         elif action.startswith(KEYS_PREFIX):
             self._do_keys(action[len(KEYS_PREFIX):])
@@ -255,7 +267,54 @@ class ActionRouter:
     def type_text(self, text: str) -> None:
         if not text:
             return
-        self._dispatch(lambda t=text: self._run(self._do_type, t))
+        self._dispatch(lambda t=text: self._run(self._emit_text, t))
+
+    def _emit_text(self, text: str) -> None:
+        if self.output_mode == "paste":
+            self._do_paste(text)
+        else:
+            self._do_type(text)
 
     def _do_type(self, text: str) -> None:
         self.kb.type(text)
+
+    @property
+    def pb(self):
+        if self._pb is None:
+            from AppKit import NSPasteboard
+            self._pb = NSPasteboard.generalPasteboard()
+        return self._pb
+
+    def _do_paste(self, text: str) -> None:
+        pb = self.pb
+        saved = [{str(t): d for t in (item.types() or [])
+                  if (d := item.dataForType_(t)) is not None}
+                 for item in (pb.pasteboardItems() or [])]
+        pb.clearContents()
+        pb.setString_forType_(text, PB_STRING)
+        # Ask clipboard managers not to record the dictation as a copy.
+        pb.setString_forType_("", PB_TRANSIENT)
+        ours = pb.changeCount()
+        self._do_keys("cmd+v")
+        # Give the target app time to read the paste before restoring.
+        timer = threading.Timer(PASTE_RESTORE_S, lambda: self._dispatch(
+            lambda: self._run(self._restore_clipboard, (ours, saved))))
+        timer.daemon = True
+        timer.start()
+
+    def _restore_clipboard(self, args) -> None:
+        ours, saved = args
+        pb = self.pb
+        if pb.changeCount() != ours:  # the user copied something since; keep it
+            return
+        pb.clearContents()
+        if not saved:
+            return
+        from AppKit import NSPasteboardItem
+        items = []
+        for types in saved:
+            item = NSPasteboardItem.alloc().init()
+            for t, d in types.items():
+                item.setData_forType_(d, t)
+            items.append(item)
+        pb.writeObjects_(items)

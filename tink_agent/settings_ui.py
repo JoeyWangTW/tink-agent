@@ -21,7 +21,9 @@ from . import audio, theme
 from .transcribe import BACKEND_ORDER, BACKEND_LABELS
 
 W = 440                  # panel width
-PW, PH = 420, 460        # separate app-picker window
+PW, PH = 420, 460
+OUTPUT_MODES = [("paste", "Paste (works with any input method)"),
+                ("type", "Type keystrokes")]        # separate app-picker window
 ROW_H = 26
 
 
@@ -74,7 +76,7 @@ class SettingsController(NSObject):
 
     # --- build ---
     def _build(self):
-        H = 572
+        H = 616
         c = theme._BGView.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
         self.view = c
         # Pin light Aqua so native popups/switches stay legible on the cream
@@ -117,7 +119,7 @@ class SettingsController(NSObject):
         # Input
         ih = theme.section_header("Input"); ih.setFrame_(NSMakeRect(m + 13, y, 200, 16))
         c.addSubview_(ih); y += 22
-        icard = theme.card(m, y, cw, 3 * 44 + 2)
+        icard = theme.card(m, y, cw, 4 * 44 + 2)
         ibody = icard.contentView()
         br, self.popup_backend = theme.popup_row("Transcription", cw, 0)
         self.popup_backend.addItemsWithTitles_(
@@ -136,9 +138,13 @@ class SettingsController(NSObject):
         self.btn_apps = theme.plain_button("", self._open_apps, 130, 9, cw - 145, 26)
         ar.addSubview_(self.btn_apps)
         ibody.addSubview_(ar)
-        ibody.addSubview_(theme.hairline(15, 44, cw - 15))
-        ibody.addSubview_(theme.hairline(15, 88, cw - 15))
-        c.addSubview_(icard); y += 3 * 44 + 2 + 14
+        orow, self.popup_output = theme.popup_row("Text output", cw, 132)
+        self.popup_output.addItemsWithTitles_([t for _, t in OUTPUT_MODES])
+        self._wire_popup(self.popup_output, self._output_cb)
+        ibody.addSubview_(orow)
+        for hy in (44, 88, 132):
+            ibody.addSubview_(theme.hairline(15, hy, cw - 15))
+        c.addSubview_(icard); y += 4 * 44 + 2 + 14
 
         self.btn_setup = theme.accent_button("Set Up TINK…", self._setup,
                                              (W - 160) / 2.0, y, 160, 32)
@@ -174,6 +180,9 @@ class SettingsController(NSObject):
         backend = self.app.config.stt_backend or "macwhisper"
         if backend in BACKEND_ORDER:
             self.popup_backend.selectItemAtIndex_(BACKEND_ORDER.index(backend))
+        modes = [k for k, _ in OUTPUT_MODES]
+        mode = self.app.config.output_mode
+        self.popup_output.selectItemAtIndex_(modes.index(mode) if mode in modes else 0)
         self._refresh_devices()
         n = len(self.app.config.target_apps or [])
         self.btn_apps.setTitle_(f"{n} apps…" if n else "Any app")
@@ -225,6 +234,11 @@ class SettingsController(NSObject):
         for k in BACKEND_ORDER:
             if BACKEND_LABELS[k] == title:
                 self.app.set_stt_backend(k); return
+
+    def _output_cb(self, title):
+        for k, t in OUTPUT_MODES:
+            if t == title:
+                self.app.set_output_mode(k); return
 
     def _device_cb(self, title):
         if not title:
