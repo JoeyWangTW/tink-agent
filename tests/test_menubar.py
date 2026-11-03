@@ -77,7 +77,6 @@ def _enable_app():
     app, calls = _fake_app(None)
     app.engine = SimpleNamespace(enabled=True)
     app.config.enabled = True
-    app.enabled_item = SimpleNamespace(state=True)
     return app, calls
 
 

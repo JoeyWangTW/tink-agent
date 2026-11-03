@@ -30,11 +30,15 @@ def _main_thread_dispatch(fn):
 
 class TinkAgentApp(rumps.App):
     def __init__(self):
-        super().__init__("Tink Agent", icon=ICON_IDLE, template=True)
+        # No dropdown menu (and so no rumps Quit item): clicking the icon opens
+        # the settings popover, which carries its own Quit link.
+        super().__init__("Tink Agent", icon=ICON_IDLE, template=True,
+                         quit_button=None)
         self.config = Config.load()
         self.engine = self._build_engine()
         self.capture = None
-        self._settings = None  # lazily-created native Settings window controller
+        self._settings = None  # settings panel, hosted in the status-item popover
+        self._popover = None
         self._button_actions = None  # lazily-created Button Actions window
 
         # State stashed from background threads (atomic attribute writes); the
@@ -50,19 +54,6 @@ class TinkAgentApp(rumps.App):
         self._last_tone_at = 0.0
         self._onboarding = None       # lazily-created OnboardingController
         self._onboarding_shown = False
-
-        # Slim menu: a quick status line + Enabled safety toggle; everything else
-        # lives in the Settings window. (rumps adds Quit automatically.)
-        self.status_item = rumps.MenuItem("status: stopped")
-        self.enabled_item = rumps.MenuItem("Enabled", callback=self._menu_toggle_enabled)
-        self.enabled_item.state = self.config.enabled
-        self.menu = [
-            self.status_item,
-            None,
-            self.enabled_item,
-            rumps.MenuItem("Settings…", callback=self.open_settings),
-            None,
-        ]
 
         # Start audio AFTER the run loop is up (opening the mic can block/prompt;
         # doing it in __init__ would delay run() and the status item appearing).
@@ -119,6 +110,7 @@ class TinkAgentApp(rumps.App):
     def _tick(self, _):
         if not self._autostart_done:
             self._autostart_done = True
+            self._install_popover()
             _request_missing_permissions()
             if self.config.enabled:  # disabled = mic closed, even across restarts
                 self.start_listening(None)
@@ -129,18 +121,23 @@ class TinkAgentApp(rumps.App):
         if capturing != self._icon_active:
             self._icon_active = capturing
             self.icon = ICON_ACTIVE if capturing else ICON_IDLE
-        listening = self.capture is not None and self.capture.is_running
-        base = "listening" if listening else "stopped"
-        shown = self._status if self._status.startswith("error") else base
-        if not self.engine.enabled:
-            shown = "disabled (mic off)"
-        self.status_item.title = f"status: {shown}{' • capturing' if capturing else ''}"
         if self._settings is not None and self.window_is_visible():
             self._settings.refresh()
 
+    def status_text(self) -> str:
+        listening = self.capture is not None and self.capture.is_running
+        shown = "Listening" if listening else "Stopped"
+        if self._status.startswith("error"):
+            shown = self._status[len("error: "):].capitalize()
+        if not self.engine.enabled:
+            shown = "Disabled (mic off)"
+        if self._icon_active:
+            shown += " · capturing"
+        return shown
+
     def window_is_visible(self) -> bool:
         try:
-            return bool(self._settings.window.isVisible())
+            return bool(self._popover.isShown())
         except Exception:  # noqa: BLE001
             return False
 
@@ -149,7 +146,6 @@ class TinkAgentApp(rumps.App):
         self.engine.enabled = bool(value)
         self.config.enabled = bool(value)
         self.config.save()
-        self.enabled_item.state = bool(value)
         # Close the input stream when disabled so macOS's mic-in-use indicator
         # goes away; reopen it when re-enabled.
         if value:
@@ -249,15 +245,47 @@ class TinkAgentApp(rumps.App):
             return
         subprocess.run(["open", str(p)])
 
-    # --- menu callbacks ---
-    def _menu_toggle_enabled(self, sender):
-        self.set_enabled(not bool(sender.state))
+    # --- status-item popover ---
+    def _install_popover(self):
+        """Swap rumps' dropdown for a popover: one click on the icon shows the
+        settings panel directly."""
+        from AppKit import NSAppearance, NSAppearanceNameAqua, NSPopover, NSViewController
+        from . import theme
+        from .settings_ui import SettingsController
+        item = self._nsapp.nsstatusitem
+        item.setMenu_(None)
+        self._settings = SettingsController.alloc().initWithApp_(self)
+        vc = NSViewController.alloc().init()
+        vc.setView_(self._settings.view)
+        pop = NSPopover.alloc().init()
+        pop.setContentViewController_(vc)
+        pop.setContentSize_(self._settings.view.frame().size)
+        pop.setBehavior_(1)  # NSPopoverBehaviorTransient: closes on click outside
+        pop.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameAqua))
+        self._popover = pop
+        self._popover_target = theme._Target.alloc().initWithCb_(self.toggle_settings)
+        item.button().setTarget_(self._popover_target)
+        item.button().setAction_("fire:")
+
+    def toggle_settings(self):
+        if self.window_is_visible():
+            self._popover.performClose_(None)
+        else:
+            self.open_settings(None)
 
     def open_settings(self, _):
-        if self._settings is None:
-            from .settings_ui import SettingsController
-            self._settings = SettingsController.alloc().initWithApp_(self)
-        self._settings.show()
+        if self._popover is None:
+            return
+        from AppKit import NSApplication, NSMinYEdge
+        self._settings.refresh()
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        btn = self._nsapp.nsstatusitem.button()
+        self._popover.showRelativeToRect_ofView_preferredEdge_(
+            btn.bounds(), btn, NSMinYEdge)
+
+    def quit(self):
+        self.stop_listening(None)
+        rumps.quit_application()
 
     def open_button_actions(self, _=None):
         if self._button_actions is None:
@@ -321,13 +349,13 @@ def _request_missing_permissions():
             print(f"[perms] {name} request failed: {e}", flush=True)
 
 
-def _set_regular_policy():
-    """Run as a regular app: Dock icon + Cmd+Tab entry, and windows persist
-    normally when switching apps (kept alongside the menu-bar item)."""
+def _set_accessory_policy():
+    """Menu-bar only: no Dock icon or Cmd+Tab entry. Windows (setup, button
+    actions) still open on demand."""
     try:
         from AppKit import NSApplication
-        # NSApplicationActivationPolicyRegular == 0
-        NSApplication.sharedApplication().setActivationPolicy_(0)
+        # NSApplicationActivationPolicyAccessory == 1
+        NSApplication.sharedApplication().setActivationPolicy_(1)
     except Exception:  # noqa: BLE001
         pass
 
@@ -356,5 +384,5 @@ def main():
         print("[main] Tink Agent is already running; exiting", flush=True)
         return
     app = TinkAgentApp()
-    _set_regular_policy()
+    _set_accessory_policy()
     app.run()

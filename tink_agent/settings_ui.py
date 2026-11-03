@@ -1,4 +1,6 @@
-"""Native (AppKit) Settings window for TinkAgent — themed via theme.py.
+"""Native (AppKit) settings panel for TinkAgent — themed via theme.py.
+
+The panel is a plain view shown in the menu-bar icon's popover.
 
 Every control delegates to TinkAgentApp setter methods, which own logic and
 persistence. Must be used on the main thread.
@@ -11,13 +13,14 @@ import objc
 from AppKit import (
     NSApplication, NSScrollView, NSBezelBorder, NSMakeRect, NSButton,
     NSControlStateValueOn, NSControlStateValueOff, NSButtonTypeSwitch,
+    NSAppearance, NSAppearanceNameAqua,
 )
 from Foundation import NSObject, NSBundle
 
 from . import audio, theme
 from .transcribe import BACKEND_ORDER, BACKEND_LABELS
 
-W = 440                  # window width; height computed in _build
+W = 440                  # panel width
 PW, PH = 420, 460        # separate app-picker window
 ROW_H = 26
 
@@ -71,13 +74,22 @@ class SettingsController(NSObject):
 
     # --- build ---
     def _build(self):
-        H = 512
-        win, c = theme.window("TINK Agent", W, H)
-        win.setTitle_("TINK Agent")
-        self.window = win
+        H = 572
+        c = theme._BGView.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
+        self.view = c
+        # Pin light Aqua so native popups/switches stay legible on the cream
+        # theme in Dark Mode (theme.window does this for real windows).
+        c.setAppearance_(NSAppearance.appearanceNamed_(NSAppearanceNameAqua))
         m = 18                       # outer margin
         cw = W - 2 * m               # card width
         y = m
+
+        title = theme.label("TINK Agent", size=17, weight="bold", color=theme.GREEN)
+        title.setFrame_(NSMakeRect(m + 4, y, 200, 22)); c.addSubview_(title)
+        self.lbl_state = theme.label("", size=12, color=theme.SUBTLE)
+        self.lbl_state.setFrame_(NSMakeRect(W - m - 204, y + 3, 200, 16))
+        self.lbl_state.setAlignment_(2)  # NSTextAlignmentRight
+        c.addSubview_(self.lbl_state); y += 34
 
         # General
         gh = theme.section_header("General"); gh.setFrame_(NSMakeRect(m + 13, y, 200, 16))
@@ -134,13 +146,15 @@ class SettingsController(NSObject):
 
         c.addSubview_(theme.hairline(m + 4, y, cw - 8)); y += 12
         self.lbl_status = theme.label("", size=11, color=theme.SUBTLE, wrap=True)
-        self.lbl_status.setFrame_(NSMakeRect(m + 4, y, 240, 34)); c.addSubview_(self.lbl_status)
+        self.lbl_status.setFrame_(NSMakeRect(m + 4, y, 260, 34)); c.addSubview_(self.lbl_status)
         c.addSubview_(theme.link_button("Open config file",
                                         lambda: self.app.open_config(None),
                                         W - m - 130, y, 130))
         c.addSubview_(theme.link_button("Open activity log",
                                         lambda: self.app.open_log(None),
                                         W - m - 130, y + 20, 130))
+        c.addSubview_(theme.link_button("Quit TINK Agent", self.app.quit,
+                                        W - m - 130, y + 40, 130))
 
     def _wire_popup(self, popup, cb):
         t = theme._Target.alloc().initWithCb_(
@@ -149,13 +163,9 @@ class SettingsController(NSObject):
         popup.setAction_("fire:")
         theme._retain(popup, t)
 
-    # --- show / refresh ---
-    def show(self):
-        self.refresh()
-        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        self.window.makeKeyAndOrderFront_(None)
-
+    # --- refresh ---
     def refresh(self):
+        self.lbl_state.setStringValue_(self.app.status_text())
         on, off = NSControlStateValueOn, NSControlStateValueOff
         self.sw_enabled.setState_(on if self.app.engine.enabled else off)
         from . import launchagent

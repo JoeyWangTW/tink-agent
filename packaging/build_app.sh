@@ -60,6 +60,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>LSUIElement</key><true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>Tink Agent listens to your mic for voice commands and button tones.</string>
   <key>TinkAgentRepo</key><string>$REPO</string>
