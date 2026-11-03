@@ -1,5 +1,7 @@
 from __future__ import annotations
+import time
 from concurrent.futures import ThreadPoolExecutor
+import numpy as np
 
 
 class Engine:
@@ -12,6 +14,8 @@ class Engine:
         self.router = router
         self.logger = logger
         self.enabled = config.enabled
+        self._last_stt = float("-inf")  # monotonic time of the last STT run
+        self._warming = False
         self._on_event = on_event or (lambda kind, payload: None)
         # Optional safety guard: when config.target_app is set, actions/typing
         # only fire if the frontmost app's name or bundle id contains it.
@@ -62,8 +66,34 @@ class Engine:
         if utterance is not None:
             self._submit(lambda u=utterance: self._handle_utterance(u))
 
+    def keep_warm(self, idle_s, now=None) -> bool:
+        """Queue a throwaway transcription if the STT engine has sat idle for
+        idle_s, so its model stays resident instead of being paged out (a cold
+        model can take 5-20 s to answer). Returns True if one was queued."""
+        now = time.monotonic() if now is None else now
+        if (not idle_s or not self.enabled or self._warming or self.is_capturing
+                or now - self._last_stt < idle_s):
+            return False
+        self._warming = True
+        self._last_stt = now
+        self._submit(self._warm)
+        return True
+
+    def _warm(self):
+        try:
+            rng = np.random.default_rng()
+            hiss = (rng.standard_normal(self.config.sample_rate // 2) * 10).astype(np.int16)
+            self.transcriber.transcribe(hiss, self.config.sample_rate)
+        except Exception:  # noqa: BLE001 — warming is best effort
+            pass
+        finally:
+            self._warming = False
+
     def _handle_utterance(self, utterance):
+        self._last_stt = t0 = time.monotonic()
         text = self.transcriber.transcribe(utterance, self.config.sample_rate)
+        print(f"[stt] {len(utterance) / self.config.sample_rate:.1f}s audio -> "
+              f"{time.monotonic() - t0:.2f}s", flush=True)
         if not text:
             if self.transcriber.last_error:
                 self._on_event("error", self.transcriber.last_error)

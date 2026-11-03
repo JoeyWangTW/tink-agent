@@ -172,3 +172,43 @@ def test_slot4_shift_tab():
     assert ("press", "SHIFT") not in kb.events  # shift is held via context mgr
     assert ("press", "TAB") in kb.events
     assert ("tone", 4) in events
+
+
+class _CountingTranscriber:
+    def __init__(self):
+        self.calls = 0
+        self.last_error = None
+
+    def transcribe(self, samples, sr):
+        self.calls += 1
+        return ""
+
+
+def _warm_engine():
+    from types import SimpleNamespace
+    from tink_agent.config import Config
+    from tink_agent.engine import Engine
+    tr = _CountingTranscriber()
+    eng = Engine(Config(), None, SimpleNamespace(active=False), tr, None,
+                 submit_fn=lambda fn: fn())
+    return eng, tr
+
+
+def test_keep_warm_runs_when_idle_then_waits():
+    eng, tr = _warm_engine()
+    assert eng.keep_warm(120, now=1000.0) is True
+    assert tr.calls == 1
+    assert eng.keep_warm(120, now=1060.0) is False      # warmed recently
+    assert eng.keep_warm(120, now=1121.0) is True
+    assert tr.calls == 2
+
+
+def test_keep_warm_skips_when_disabled_or_capturing():
+    eng, tr = _warm_engine()
+    assert eng.keep_warm(0, now=1000.0) is False         # feature off
+    eng.enabled = False
+    assert eng.keep_warm(120, now=1000.0) is False
+    eng.enabled = True
+    eng.voicegate.active = True
+    assert eng.keep_warm(120, now=1000.0) is False
+    assert tr.calls == 0

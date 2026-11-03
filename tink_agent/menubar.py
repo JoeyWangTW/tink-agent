@@ -121,6 +121,8 @@ class TinkAgentApp(rumps.App):
         if capturing != self._icon_active:
             self._icon_active = capturing
             self.icon = ICON_ACTIVE if capturing else ICON_IDLE
+        if self.capture is not None and self.capture.is_running:
+            self.engine.keep_warm(self.config.stt_keep_warm_s)
         if self._settings is not None and self.window_is_visible():
             self._settings.refresh()
 

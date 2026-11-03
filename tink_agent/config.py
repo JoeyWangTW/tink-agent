@@ -29,6 +29,9 @@ class Config:
     vad_release_ms: int = 150
     min_utterance_ms: int = 400
     max_utterance_ms: int = 30000
+    # Seconds of STT inactivity before a silent warm-up run keeps the model
+    # loaded (MacWhisper's model gets paged out when idle). 0 disables.
+    stt_keep_warm_s: int = 120
     stt_model: str = ""  # "" = the model currently selected in MacWhisper
     mw_binary: str = MW_BINARY
     # Transcription backend. "macwhisper" | "whisper-cpp" | "openai-whisper" use
