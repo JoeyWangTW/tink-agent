@@ -195,6 +195,19 @@ class TinkAgentApp(rumps.App):
         self.config.save()
         self.engine.transcriber = self._make_transcriber()
 
+    def set_speech_model(self, name: str):
+        self.config.stt_server_engine = name
+        self.config.save()
+        tr = self._make_transcriber()
+        self.engine.transcriber = tr
+        # The server loads a model on its first request; trigger that now, off
+        # the main thread, so the next dictation doesn't wait for it.
+        import threading
+        import numpy as np
+        threading.Thread(target=tr.transcribe, daemon=True,
+                         args=(np.zeros(8000, dtype=np.int16), self.config.sample_rate)
+                         ).start()
+
     def set_output_mode(self, mode: str):
         self.config.output_mode = mode
         self.config.save()

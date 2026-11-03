@@ -22,6 +22,8 @@ from .transcribe import BACKEND_ORDER, BACKEND_LABELS
 
 W = 440                  # panel width
 PW, PH = 420, 460
+SPEECH_MODELS = [("parakeet", "Parakeet · fastest, English"),
+                 ("whisper", "Whisper · multilingual, 中文")]
 OUTPUT_MODES = [("paste", "Paste (works with any input method)"),
                 ("type", "Type keystrokes")]        # separate app-picker window
 ROW_H = 26
@@ -76,7 +78,7 @@ class SettingsController(NSObject):
 
     # --- build ---
     def _build(self):
-        H = 616
+        H = 660
         c = theme._BGView.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
         self.view = c
         # Pin light Aqua so native popups/switches stay legible on the cream
@@ -119,32 +121,36 @@ class SettingsController(NSObject):
         # Input
         ih = theme.section_header("Input"); ih.setFrame_(NSMakeRect(m + 13, y, 200, 16))
         c.addSubview_(ih); y += 22
-        icard = theme.card(m, y, cw, 4 * 44 + 2)
+        icard = theme.card(m, y, cw, 5 * 44 + 2)
         ibody = icard.contentView()
         br, self.popup_backend = theme.popup_row("Transcription", cw, 0)
         self.popup_backend.addItemsWithTitles_(
             [BACKEND_LABELS[k] for k in BACKEND_ORDER])
         self._wire_popup(self.popup_backend, self._backend_cb)
         ibody.addSubview_(br)
-        dr, self.popup_device = theme.popup_row("Audio source", cw, 44, trailing_w=74)
+        mr, self.popup_model = theme.popup_row("Speech model", cw, 44)
+        self.popup_model.addItemsWithTitles_([t for _, t in SPEECH_MODELS])
+        self._wire_popup(self.popup_model, self._model_cb)
+        ibody.addSubview_(mr)
+        dr, self.popup_device = theme.popup_row("Audio source", cw, 88, trailing_w=74)
         self._wire_popup(self.popup_device, self._device_cb)
         self.btn_refresh = theme.plain_button("Refresh", self._refresh_click,
                                               cw - 15 - 70, 9, 70, 26)
         dr.addSubview_(self.btn_refresh)
         ibody.addSubview_(dr)
-        ar, self.popup_apps = theme.popup_row("Allowed apps", cw, 88)
+        ar, self.popup_apps = theme.popup_row("Allowed apps", cw, 132)
         # Allowed apps is a button, not a real popup: hide the popup, add a button.
         self.popup_apps.setHidden_(True)
         self.btn_apps = theme.plain_button("", self._open_apps, 130, 9, cw - 145, 26)
         ar.addSubview_(self.btn_apps)
         ibody.addSubview_(ar)
-        orow, self.popup_output = theme.popup_row("Text output", cw, 132)
+        orow, self.popup_output = theme.popup_row("Text output", cw, 176)
         self.popup_output.addItemsWithTitles_([t for _, t in OUTPUT_MODES])
         self._wire_popup(self.popup_output, self._output_cb)
         ibody.addSubview_(orow)
-        for hy in (44, 88, 132):
+        for hy in (44, 88, 132, 176):
             ibody.addSubview_(theme.hairline(15, hy, cw - 15))
-        c.addSubview_(icard); y += 4 * 44 + 2 + 14
+        c.addSubview_(icard); y += 5 * 44 + 2 + 14
 
         self.btn_setup = theme.accent_button("Set Up TINK…", self._setup,
                                              (W - 160) / 2.0, y, 160, 32)
@@ -180,6 +186,12 @@ class SettingsController(NSObject):
         backend = self.app.config.stt_backend or "macwhisper"
         if backend in BACKEND_ORDER:
             self.popup_backend.selectItemAtIndex_(BACKEND_ORDER.index(backend))
+        # The speech model is a dictation-server choice; other backends pick
+        # their model elsewhere.
+        engines = [k for k, _ in SPEECH_MODELS]
+        eng = self.app.config.stt_server_engine or "parakeet"
+        self.popup_model.selectItemAtIndex_(engines.index(eng) if eng in engines else 0)
+        self.popup_model.setEnabled_(backend == "local-server")
         modes = [k for k, _ in OUTPUT_MODES]
         mode = self.app.config.output_mode
         self.popup_output.selectItemAtIndex_(modes.index(mode) if mode in modes else 0)
@@ -234,6 +246,11 @@ class SettingsController(NSObject):
         for k in BACKEND_ORDER:
             if BACKEND_LABELS[k] == title:
                 self.app.set_stt_backend(k); return
+
+    def _model_cb(self, title):
+        for k, t in SPEECH_MODELS:
+            if t == title:
+                self.app.set_speech_model(k); return
 
     def _output_cb(self, title):
         for k, t in OUTPUT_MODES:
