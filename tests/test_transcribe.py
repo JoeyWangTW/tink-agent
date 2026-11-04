@@ -125,3 +125,14 @@ def test_server_transcriber_reports_unreachable():
     t = ServerTranscriber("http://127.0.0.1:1", opener=opener)
     assert t.transcribe(np.zeros(10, dtype=np.int16), 16000) == ""
     assert "not reachable" in t.last_error
+
+
+def test_clean_transcript_removes_pause_ellipses_and_fillers():
+    from tink_agent.transcribe import clean_transcript as c
+    assert c("So I want to... refactor the panel...") == "So I want to refactor the panel"
+    assert c("Okay… So then we run it.") == "Okay. So then we run it."
+    assert c("Um, so I think, uh, we should... maybe ship it.") == "So I think, we should maybe ship it."
+    assert c("...and then the tests") == "and then the tests"
+    assert c("我想……然后运行测试。") == "我想然后运行测试。"
+    assert c("Run the tests.") == "Run the tests."
+    assert c("The umbrella is humid, uhh, hmm.") == "The umbrella is humid"

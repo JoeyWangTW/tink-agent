@@ -38,6 +38,11 @@ class Config:
     stt_server_url: str = "http://127.0.0.1:8766"
     stt_server_engine: str = ""   # "" = server default; "parakeet" | "whisper"
     stt_language: str = ""        # e.g. "zh" for Whisper; "" = auto-detect
+    # Example text for Whisper to imitate: clean punctuation, no ellipses at
+    # pauses. Whisper copies its style; it is not read as an instruction.
+    stt_prompt: str = ("Okay, so I want to refactor the settings panel, then run "
+                       "the tests and fix the failing import.")
+    stt_cleanup: bool = True  # drop pause ellipses and um/uh from transcripts
     stt_model: str = ""  # "" = the model currently selected in MacWhisper
     mw_binary: str = MW_BINARY
     # Transcription backend. "macwhisper" | "whisper-cpp" | "openai-whisper" use

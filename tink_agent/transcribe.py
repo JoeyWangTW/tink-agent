@@ -16,6 +16,7 @@ Built-in presets live in PRESETS; "custom" uses config.stt_command/stt_output.
 """
 from __future__ import annotations
 import json
+import re
 import subprocess
 import urllib.error
 import urllib.parse
@@ -36,6 +37,37 @@ def write_wav(samples: np.ndarray, path, sample_rate: int) -> None:
         w.writeframes(samples.tobytes())
     finally:
         w.close()
+
+
+# --- transcript cleanup ----------------------------------------------------
+
+_FILLER = re.compile(r"(?<![\w'])(?:u+m+|u+h+m*|e+r+m+|h+m+)(?![\w'])[,.]?\s*", re.I)
+_ELLIPSIS = re.compile(r"\s*(?:\.{2,}|…+)\s*")
+_CJK = re.compile(r"[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]")
+
+
+def _ellipsis_sub(m: re.Match) -> str:
+    s, i, j = m.string, m.start(), m.end()
+    before, after = s[:i].rstrip(), s[j:]
+    if not before or not after:
+        return ""                                  # leading / trailing
+    if _CJK.match(before[-1]) or _CJK.match(after[0]):
+        return ""                                  # 我想……然后 -> 我想然后
+    if after[0].isupper():
+        return ". "                                # trailed off, new sentence
+    return " "                                     # mid-sentence pause
+
+
+def clean_transcript(text: str) -> str:
+    """Remove dictation artifacts: ellipses where the speaker paused to think,
+    and filler words (um, uh). Pauses are not meaningful in dictated text."""
+    t = _FILLER.sub("", text)
+    t = _ELLIPSIS.sub(_ellipsis_sub, t)
+    t = re.sub(r"\s+([,.!?;:])", r"\1", t)        # no space before punctuation
+    t = re.sub(r"([,.!?;:])(?:\s*[,.;:])+", r"\1", t)  # ", ." -> ","
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    t = t.lstrip(",.;: ").rstrip(",;: ")
+    return t[:1].upper() + t[1:] if t[:1].islower() and text[:1].isupper() else t
 
 
 # --- backend presets -------------------------------------------------------
@@ -75,7 +107,7 @@ def make_transcriber(config):
     """The transcriber for config.stt_backend."""
     if (getattr(config, "stt_backend", "") or "") == "local-server":
         return ServerTranscriber(config.stt_server_url, config.stt_server_engine,
-                                 config.stt_language)
+                                 config.stt_language, config.stt_prompt)
     cmd, mode = resolve_stt(config)
     return Transcriber(cmd, mode)
 
@@ -99,10 +131,12 @@ class ServerTranscriber:
 
     needs_warm = False  # the server keeps itself warm
 
-    def __init__(self, url, engine="", language="", opener=urllib.request.urlopen):
+    def __init__(self, url, engine="", language="", prompt="",
+                 opener=urllib.request.urlopen):
         self.url = url.rstrip("/")
         self.engine = engine
         self.language = language
+        self.prompt = prompt
         self._open = opener
         self.last_error: str | None = None
 
@@ -113,6 +147,8 @@ class ServerTranscriber:
             q["engine"] = self.engine
         if self.language:
             q["language"] = self.language
+        if self.prompt:
+            q["prompt"] = self.prompt
         body = np.asarray(samples, dtype=np.int16).reshape(-1).tobytes()
         req = urllib.request.Request(
             f"{self.url}/transcribe?{urllib.parse.urlencode(q)}", data=body,

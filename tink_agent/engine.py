@@ -2,6 +2,7 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
+from .transcribe import clean_transcript
 
 
 class Engine:
@@ -101,6 +102,8 @@ class Engine:
     def _handle_utterance(self, utterance):
         self._last_stt = t0 = time.monotonic()
         text = self.transcriber.transcribe(utterance, self.config.sample_rate)
+        if text and getattr(self.config, "stt_cleanup", True):
+            text = clean_transcript(text)
         print(f"[stt] {len(utterance) / self.config.sample_rate:.1f}s audio -> "
               f"{time.monotonic() - t0:.2f}s", flush=True)
         if not text:
